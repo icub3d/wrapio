@@ -70,7 +70,7 @@ func TestNewHashReader(t *testing.T) {
 		t.Errorf("nil io.Reader didn't return nil.")
 	}
 	if NewHashReader(nil, strings.NewReader("")) != nil {
-		t.Errorf("nil io.Reader didn't return nil.")
+		t.Errorf("nil hash didn't return nil.")
 	}
 }
 
@@ -102,10 +102,10 @@ func TestNewHashWriter(t *testing.T) {
 		}
 	}
 	// Test the special error cases.
-	if NewHashReader(tests[0].hash, nil) != nil {
-		t.Errorf("nil io.Reader didn't return nil.")
+	if NewHashWriter(tests[0].hash, nil) != nil {
+		t.Errorf("nil io.Writer didn't return nil.")
 	}
-	if NewHashReader(nil, strings.NewReader("")) != nil {
-		t.Errorf("nil io.Reader didn't return nil.")
+	if NewHashWriter(nil, ioutil.Discard) != nil {
+		t.Errorf("nil hash did't return nil.")
 	}
 }
