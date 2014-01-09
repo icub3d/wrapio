@@ -6,7 +6,7 @@
 // interfaces. These wrappers act as middlemen that allow you to do
 // multiple things with a single stream of data. They are useful when
 // requesting the data multiple times may be difficult or
-// expensive. They also elinimate the need to track and maintain all
+// expensive. They also eliminate the need to track and maintain all
 // of these items yourself and make functions like io.Copy and
 // ioutil.ReadAll extremely useful.
 package wrapio
