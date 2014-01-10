@@ -14,7 +14,29 @@ import (
 	"io/ioutil"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
+
+func TestWrap(t *testing.T) {
+	// We basically just need to test the error cases.
+	expected := fmt.Errorf("test")
+	w := wrap{
+		f: func(p []byte) error {
+			return expected
+		},
+		r: strings.NewReader("test"),
+		w: ioutil.Discard,
+	}
+	p := make([]byte, 32)
+	if n, err := w.Read(p); n != 0 || err != expected {
+		t.Errorf("Expected 0 %v with Read() wrapfunc but got: %v %",
+			expected, n, err)
+	}
+	if n, err := w.Write(p); n != 0 || err != expected {
+		t.Errorf("Expected 0 %v with Write() wrapfunc but got: %v %",
+			expected, n, err)
+	}
+}
 
 func Example_hashes() {
 	// We'll read from this using io.Copy.
@@ -107,5 +129,70 @@ func TestNewHashWriter(t *testing.T) {
 	}
 	if NewHashWriter(nil, ioutil.Discard) != nil {
 		t.Errorf("nil hash did't return nil.")
+	}
+}
+
+func Example_stats() {
+	// We'll read from this using io.Copy.
+	sr := strings.NewReader("This is the sample data that we are going to test with.")
+
+	// Create our wrappers and use them.
+	s, r := NewStatsReader(iotest.OneByteReader(sr))
+	io.Copy(ioutil.Discard, r)
+
+	// Print out the statistics.
+	s.Lock()
+	defer s.Unlock()
+	fmt.Println(s.Total)
+	fmt.Println(s.Calls)
+	fmt.Println(s.Average)
+
+	// Output:
+	// 55
+	// 55
+	// 1
+}
+
+func TestNewStatsReader(t *testing.T) {
+	tests := []struct {
+		data     string
+		expected []int
+	}{
+		{
+			data:     "this is a test.",
+			expected: []int{15, 1, 15},
+		},
+	}
+	for k, test := range tests {
+		sr := strings.NewReader(test.data)
+		s, hr := NewStatsReader(sr)
+		ioutil.ReadAll(hr)
+		if s.Total != test.expected[0] || s.Calls != test.expected[1] ||
+			s.Average != test.expected[2] {
+			t.Errorf("Test %v: unexpected stats, got vs expected:\n%v\n%v",
+				k, s, test.expected)
+		}
+	}
+}
+
+func TestNewStatsWriter(t *testing.T) {
+	tests := []struct {
+		data     string
+		expected []int
+	}{
+		{
+			data:     "this is a test.",
+			expected: []int{15, 1, 15},
+		},
+	}
+	for k, test := range tests {
+		sr := strings.NewReader(test.data)
+		s, hw := NewStatsWriter(ioutil.Discard)
+		io.Copy(hw, sr)
+		if s.Total != test.expected[0] || s.Calls != test.expected[1] ||
+			s.Average != test.expected[2] {
+			t.Errorf("Test %v: unexpected stats, got vs expected:\n%v\n%v",
+				k, s, test.expected)
+		}
 	}
 }
