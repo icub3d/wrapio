@@ -52,14 +52,35 @@ func (w *wrap) Write(p []byte) (int, error) {
 	return w.w.Write(p)
 }
 
-// makeHashWrap Makes a closure around the given hash.Hash.
-func makeHashWrap(h hash.Hash) wrapfunc {
-	return func(p []byte) error {
-		// Per the documentation, this never returns an error, so we can
-		// safely ignore the results.
-		h.Write(p)
+// NewFuncReader returns an io.Reader that wraps the given io.Reader
+// with the given function. Any Read() operations will run through the
+// translation function before being returned. If the function
+// encounters something fatal, an error can be returned and that will
+// be returned for the Read(). If either of the parameters are nil,
+// nil is returned.
+func NewFuncReader(f func([]byte) error, r io.Reader) io.Reader {
+	if f == nil || r == nil {
 		return nil
 	}
+	return &wrap{f: func(p []byte) error {
+		return f(p)
+	}, r: r}
+}
+
+// NewFuncWriter returns an io.Writer that wraps the given io.Writer
+// with the given function. Any Write() operations will run through
+// the translation function before being written. If the function
+// encounters something fatal, an error can be returned and that will
+// be returned for the Write() without data being written to the
+// original io.Writer. If either of the parameters are nil, nil is
+// returned.
+func NewFuncWriter(f func([]byte) error, w io.Writer) io.Writer {
+	if f == nil || w == nil {
+		return nil
+	}
+	return &wrap{f: func(p []byte) error {
+		return f(p)
+	}, w: w}
 }
 
 // NewHashReader returns an io.Reader that wraps the given io.Reader
@@ -68,10 +89,13 @@ func makeHashWrap(h hash.Hash) wrapfunc {
 // and get the hash of that thing. If either of the parameters are
 // nil, nil is returned.
 func NewHashReader(h hash.Hash, r io.Reader) io.Reader {
-	if h == nil || r == nil {
+	if h == nil {
 		return nil
 	}
-	return &wrap{f: makeHashWrap(h), r: r}
+	return NewFuncReader(func(p []byte) error {
+		h.Write(p)
+		return nil
+	}, r)
 }
 
 // NewHashWriter returns an io.Writer that wraps the given io.Writer
@@ -80,10 +104,13 @@ func NewHashReader(h hash.Hash, r io.Reader) io.Reader {
 // and get the hash of that thing. If either of the parameters are
 // nil, nil is returned.
 func NewHashWriter(h hash.Hash, w io.Writer) io.Writer {
-	if h == nil || w == nil {
+	if h == nil {
 		return nil
 	}
-	return &wrap{f: makeHashWrap(h), w: w}
+	return NewFuncWriter(func(p []byte) error {
+		h.Write(p)
+		return nil
+	}, w)
 }
 
 // Stats maintains the statistics about the I/O. It is updated with
@@ -116,7 +143,7 @@ func makeStatsWrap(s *Stats) wrapfunc {
 // are nil, nil is returned.
 func NewStatsReader(r io.Reader) (*Stats, io.Reader) {
 	s := &Stats{}
-	return s, &wrap{f: makeStatsWrap(s), r: r}
+	return s, NewFuncReader(makeStatsWrap(s), r)
 }
 
 // NewStatsWriter returns an io.Writer that wraps the given io.Writer
@@ -125,5 +152,5 @@ func NewStatsReader(r io.Reader) (*Stats, io.Reader) {
 // are nil, nil is returned.
 func NewStatsWriter(w io.Writer) (*Stats, io.Writer) {
 	s := &Stats{}
-	return s, &wrap{f: makeStatsWrap(s), w: w}
+	return s, NewFuncWriter(makeStatsWrap(s), w)
 }
