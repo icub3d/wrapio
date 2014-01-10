@@ -5,6 +5,7 @@
 package wrapio
 
 import (
+	"bytes"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,13 +30,34 @@ func TestWrap(t *testing.T) {
 	}
 	p := make([]byte, 32)
 	if n, err := w.Read(p); n != 0 || err != expected {
-		t.Errorf("Expected 0 %v with Read() wrapfunc but got: %v %",
+		t.Errorf("Expected 0 %v with Read() wrapfunc but got: %v %v",
 			expected, n, err)
 	}
 	if n, err := w.Write(p); n != 0 || err != expected {
-		t.Errorf("Expected 0 %v with Write() wrapfunc but got: %v %",
+		t.Errorf("Expected 0 %v with Write() wrapfunc but got: %v %v",
 			expected, n, err)
 	}
+}
+
+func Example_func() {
+	// We'll read from this using io.Copy.
+	r := strings.NewReader("This is the sample data that we are going to test with.")
+
+	// Create our wrapper which will replace spaces with |.
+	var b bytes.Buffer
+	w := NewFuncWriter(func(p []byte) error {
+		// Do the replace and then copy the change back to p.
+		n := bytes.Replace(p, []byte(" "), []byte("|"), -1)
+		copy(p, n)
+		return nil
+	}, &b)
+	io.Copy(w, r)
+
+	// Print the results.
+	fmt.Println(b.String())
+
+	// Output:
+	// This|is|the|sample|data|that|we|are|going|to|test|with.
 }
 
 func Example_hashes() {

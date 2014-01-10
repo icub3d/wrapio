@@ -17,8 +17,10 @@ import (
 	"sync"
 )
 
-// wrapfunc is the signature used by the wrap struct.
-type wrapfunc func([]byte) error
+// WrapFunc is the signature used for functions that wrap an io.Reader
+// or io.Writer. It is used in conjunction with some of the functions
+// below.
+type WrapFunc func([]byte) error
 
 // Wrap implements the io.Reader and io.Writer interface. It contains
 // common simple algorithms that many of the New* functions use.
@@ -26,7 +28,7 @@ type wrap struct {
 	// F is the function that is called during the Read/Write
 	// process. It is called after a Read() and before a Write(). An
 	// error suggests something fatal and the process should stop.
-	f wrapfunc
+	f WrapFunc
 	r io.Reader
 	w io.Writer
 }
@@ -58,7 +60,7 @@ func (w *wrap) Write(p []byte) (int, error) {
 // encounters something fatal, an error can be returned and that will
 // be returned for the Read(). If either of the parameters are nil,
 // nil is returned.
-func NewFuncReader(f func([]byte) error, r io.Reader) io.Reader {
+func NewFuncReader(f WrapFunc, r io.Reader) io.Reader {
 	if f == nil || r == nil {
 		return nil
 	}
@@ -74,7 +76,7 @@ func NewFuncReader(f func([]byte) error, r io.Reader) io.Reader {
 // be returned for the Write() without data being written to the
 // original io.Writer. If either of the parameters are nil, nil is
 // returned.
-func NewFuncWriter(f func([]byte) error, w io.Writer) io.Writer {
+func NewFuncWriter(f WrapFunc, w io.Writer) io.Writer {
 	if f == nil || w == nil {
 		return nil
 	}
@@ -126,7 +128,7 @@ type Stats struct {
 
 // Wrap implements the wrap interface. It analyzes the given bytes and
 // updates the statistics accordingly.
-func makeStatsWrap(s *Stats) wrapfunc {
+func makeStatsWrap(s *Stats) WrapFunc {
 	return func(p []byte) error {
 		s.Lock()
 		defer s.Unlock()
