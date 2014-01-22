@@ -109,7 +109,7 @@ func TestHashWriter(t *testing.T) {
 		t.Errorf("nil io.Writer didn't return nil.")
 	}
 	if NewHashWriter(nil, ioutil.Discard) != nil {
-		t.Errorf("nil hash did't return nil.")
+		t.Errorf("nil hash didn't return nil.")
 	}
 }
 
@@ -190,14 +190,14 @@ func Example_blocks() {
 	var n int
 	for err == nil {
 		n, err = br.Read(p)
-		fmt.Println(n, err, p[:n])
+		fmt.Println(n, err, string(p[:n]))
 	}
 	// Output:
-	// 3 <nil> [48 49 50]
-	// 3 <nil> [51 52 53]
-	// 3 <nil> [54 55 56]
-	// 1 <nil> [57]
-	// 0 EOF []
+	// 3 <nil> 012
+	// 3 <nil> 345
+	// 3 <nil> 678
+	// 1 <nil> 9
+	// 0 EOF
 }
 
 func TestBlockWriter(t *testing.T) {
@@ -448,6 +448,228 @@ func TestBlockReaderUnitTest(t *testing.T) {
 					k, test.block.buf, test.buf)
 			}
 		}
+	}
+}
+
+func Example_lastFunc() {
+	// This is the buffer that we'll read from.
+	buf := strings.NewReader("0123456789")
+	br := NewLastFuncReader(func(p []byte) []byte {
+		// We are going to pad with zeros.
+		for len(p) < 3 {
+			p = append(p, 48)
+		}
+		return p
+	}, buf)
+	p := make([]byte, 3)
+	// Read until we get an error.
+	var err error
+	var n int
+	for err == nil {
+		n, err = br.Read(p)
+		fmt.Println(n, err, string(p[:n]))
+	}
+	// Output:
+	// 3 <nil> 012
+	// 3 <nil> 345
+	// 3 <nil> 678
+	// 3 EOF 900
+}
+
+func TestLastFuncReader(t *testing.T) {
+	tests := []struct {
+		ps       [][]byte
+		expected [][]byte
+		errs     []error
+		data     io.Reader
+		f        func([]byte) []byte
+	}{
+		// General case.
+		{
+			ps: [][]byte{
+				make([]byte, 3),
+				make([]byte, 3),
+				make([]byte, 3),
+				make([]byte, 3),
+			},
+			errs: []error{
+				nil,
+				nil,
+				nil,
+				io.EOF,
+			},
+			expected: [][]byte{
+				[]byte("012"),
+				[]byte("345"),
+				[]byte("678"),
+				[]byte("900"),
+			},
+			data: strings.NewReader("0123456789"),
+			f: func(p []byte) []byte {
+				for len(p) < 3 {
+					p = append(p, 48)
+				}
+				return p
+			},
+		},
+		// Our func returns a value less than p.
+		{
+			ps: [][]byte{
+				make([]byte, 3),
+				make([]byte, 3),
+				make([]byte, 3),
+			},
+			errs: []error{
+				nil,
+				nil,
+				io.EOF,
+			},
+			expected: [][]byte{
+				[]byte("012"),
+				[]byte("345"),
+				[]byte("6"),
+			},
+			data: strings.NewReader("012345678"),
+			f: func(p []byte) []byte {
+				return p[:1]
+			},
+		},
+		// p is too big
+		{
+			ps: [][]byte{
+				make([]byte, 3),
+				make([]byte, 100),
+				make([]byte, 3),
+			},
+			errs: []error{
+				nil,
+				nil,
+				io.EOF,
+			},
+			expected: [][]byte{
+				[]byte("012"),
+				[]byte("345"),
+				[]byte("6"),
+			},
+			data: strings.NewReader("012345678"),
+			f: func(p []byte) []byte {
+				return p[:1]
+			},
+		},
+		// Test the case where the first read returns an error.
+		{
+			ps: [][]byte{
+				make([]byte, 3),
+			},
+			errs: []error{
+				io.EOF,
+			},
+			expected: [][]byte{
+				[]byte("100"),
+			},
+			data: &er{
+				data: []byte("1"),
+				n:    1,
+				err:  io.EOF,
+			},
+			f: func(p []byte) []byte {
+				for len(p) < 3 {
+					p = append(p, 48)
+				}
+				return p
+			},
+		},
+	}
+	for k, test := range tests {
+		r := NewLastFuncReader(test.f, test.data)
+		for x, expected := range test.expected {
+			n, err := r.Read(test.ps[x])
+			if n != len(test.expected[x]) {
+				t.Errorf("Test %v(%v): n (%v) != expected (%v)",
+					k, x, n, len(test.expected[x]))
+			}
+			if err != test.errs[x] {
+				t.Errorf("Test %v(%v): err (%v) != expected (%v)",
+					k, x, err, test.errs[x])
+			}
+			if !reflect.DeepEqual(test.ps[x][:n], expected) {
+				t.Errorf("Test %v(%v): written (%v) != expected (%v)",
+					k, x, test.ps[x][:n], expected)
+			}
+		}
+		// Do one last call and expect 0, EOF.
+		if n, err := r.Read(test.ps[0]); n != 0 && err != io.EOF {
+			t.Errorf("Test %v: final read didn't return 0, EOF: %v %v",
+				k, n, err)
+		}
+	}
+	// Test the special error cases.
+	if NewLastFuncReader(tests[0].f, nil) != nil {
+		t.Errorf("nil io.Writer didn't return nil.")
+	}
+	if NewLastFuncReader(nil, &bytes.Buffer{}) != nil {
+		t.Errorf("nil func did't return nil.")
+	}
+}
+
+func TestLastFuncWriter(t *testing.T) {
+	tests := []struct {
+		ps       []string
+		expected []string
+		last     string
+		f        func([]byte) []byte
+	}{
+		{
+			ps:       []string{"1", "22", "3", "4444", "5"},
+			expected: []string{"", "1", "22", "3", "4444"},
+			last:     "5: THE END",
+			f: func(p []byte) []byte {
+				return append(p, []byte(": THE END")...)
+			},
+		},
+	}
+	for k, test := range tests {
+		buf := &bytes.Buffer{}
+		w := NewLastFuncWriter(test.f, buf)
+		for x, p := range test.ps {
+			n, err := w.Write([]byte(p))
+			if n != len(p) {
+				t.Errorf("Test %v(%v): n (%v) != expected (%v)",
+					k, x, n, len(p))
+			}
+			if err != nil {
+				t.Errorf("Test %v(%v): err (%v) != expected (%v)",
+					k, x, err, nil)
+			}
+			if !reflect.DeepEqual(buf.String(), test.expected[x]) {
+				t.Errorf("Test %v(%v): written (%v) != expected (%v)",
+					k, x, buf.String(), test.expected[x])
+			}
+			buf.Reset()
+		}
+		err := w.Close()
+		if err != nil {
+			t.Errorf("Test %v: err (%v) != expected (%v)",
+				k, err, nil)
+		}
+		if !reflect.DeepEqual(buf.String(), test.last) {
+			t.Errorf("Test %v: last (%v) != expected (%v)",
+				k, buf.String(), test.last)
+		}
+		// Set the error and verify the return.
+		w.(*last).err = io.EOF
+		if n, err := w.Write(nil); n != 0 && err != io.EOF {
+			t.Errorf("Test %v: final write didn't return 0, EOF: %v %v",
+				k, n, err)
+		}
+
+	}
+	// Test the special error cases.
+	if NewLastFuncWriter(tests[0].f, nil) != nil {
+		t.Errorf("nil io.Writer didn't return nil.")
+	}
+	if NewLastFuncWriter(nil, ioutil.Discard) != nil {
+		t.Errorf("nil func did't return nil.")
 	}
 }
 

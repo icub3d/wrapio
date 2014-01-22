@@ -18,9 +18,7 @@ import (
 	"sync"
 )
 
-// Wrap implements the io.Closer, io.Reader, and io.Writer
-// interface. It contains common simple algorithms that many of the
-// New* functions use.
+// Wrap implements the io.Closer, io.Reader, and io.Writer interface.
 type wrap struct {
 	handler func([]byte)
 	r       io.Reader
@@ -252,4 +250,134 @@ func NewBlockWriter(size int, w io.Writer) io.WriteCloser {
 		return nil
 	}
 	return &block{w: w, size: size}
+}
+
+// Last implements the io.Closer, io.Reader, and io.Writer interface.
+type last struct {
+	handler func([]byte) []byte
+	bufLen  int
+	bufCap  int
+	tmpCap  int
+	tmpLen  int
+	buf     []byte
+	tmp     []byte
+	err     error
+	r       io.Reader
+	w       io.Writer
+}
+
+// Read implements the io.Reader interface.
+func (l *last) Read(p []byte) (int, error) {
+	lp := len(p)
+	// Check our error scenarios first.
+	if l.err != nil && l.bufLen == 0 {
+		// We've sent all of our buffer and have an error condition. We
+		// are done.
+		return 0, l.err
+	} else if l.err != nil {
+		// We have an error condition, but haven't sent all of our data.
+		data := l.handler(l.buf[:l.bufLen])
+		copy(p, data)
+		n := lp
+		if n > len(data) {
+			n = len(data)
+		}
+		l.bufLen = 0
+		return n, l.err
+	}
+	// On the first call, we'll have an empty buffer. Let's fill it.
+	if l.buf == nil {
+		l.buf = make([]byte, lp)
+		l.bufCap = lp
+		l.bufLen, l.err = l.r.Read(l.buf)
+		if l.err != nil {
+			// Our first read could be our last.
+			return l.Read(p)
+		}
+	}
+	// We should do a read at this point. If the read returns data, we
+	// want to fill p, and copy the data to our buffer. If it doesn't
+	// return data and an error, then we know our last read was it so we
+	// should close out.
+	if l.tmpCap < lp {
+		l.tmp = make([]byte, lp)
+		l.tmpCap = lp
+	}
+	l.tmpLen, l.err = l.r.Read(l.tmp)
+	if l.tmpLen == 0 && l.err != nil {
+		return l.Read(p)
+	}
+	// Copy as much of our buffer as we can into p.
+	n := lp
+	if n > l.bufLen {
+		n = l.bufLen
+	}
+	copy(p, l.buf[:n])
+	// Resize our buffer if necessary and copy our temporary data to the
+	// buffer.
+	if l.bufCap < l.tmpCap {
+		l.buf = make([]byte, l.tmpCap)
+		l.bufCap = l.tmpCap
+	}
+	copy(l.buf, l.tmp[:l.tmpLen])
+	l.bufLen = l.tmpLen
+	return n, nil
+}
+
+// Write implements the io.Writer interface.
+func (l *last) Write(p []byte) (int, error) {
+	if l.err != nil {
+		return 0, l.err
+	}
+	// Write out the current buffer if we have some.
+	if l.bufLen > 0 {
+		_, l.err = l.w.Write(l.buf[:l.bufLen])
+	}
+	// Resize the buffer if necessary.
+	lp := len(p)
+	if l.bufCap < lp {
+		l.buf = make([]byte, lp)
+		l.bufCap = lp
+	}
+	// Copy p into our buffer.
+	copy(l.buf, p)
+	l.bufLen = lp
+	return lp, nil
+}
+
+// Close implements the io.Closer interface.
+func (l *last) Close() error {
+	if l.bufLen > 0 {
+		_, l.err = l.w.Write(l.handler(l.buf[:l.bufLen]))
+	}
+	return l.err
+}
+
+// NewLastFuncReader returns an io.Reader that calls the given handler
+// on the last Read() operation before passing it along. The last
+// Read() operation is either the data returned with an error or if
+// there is no data returned with the error, the data returned from
+// the last call. If the slice passed to Read() is not consistent,
+// data may be truncated.
+func NewLastFuncReader(handler func([]byte) []byte, r io.Reader) io.Reader {
+	if handler == nil || r == nil {
+		return nil
+	}
+	return &last{handler: handler, r: r}
+}
+
+// NewLastFuncWriter returns an io.Writer that uses the given handler
+// on the data from the very last Write() operation. It does this by
+// holding onto the last Write()'s data without sending it. The first
+// call to Write() won't send data to the given writer. Because it is
+// impossible to tell when the last write is, the Close() function
+// should be called after all the Write()s have been completed. This
+// will cause the last write to be handed to the handler. The returned
+// byte slice will be sent along.
+func NewLastFuncWriter(handler func([]byte) []byte,
+	w io.Writer) io.WriteCloser {
+	if handler == nil || w == nil {
+		return nil
+	}
+	return &last{handler: handler, w: w}
 }
