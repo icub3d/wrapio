@@ -290,7 +290,7 @@ func (l *last) Read(p []byte) (int, error) {
 		l.buf = make([]byte, lp)
 		l.bufCap = lp
 		l.bufLen, l.err = l.r.Read(l.buf)
-		if l.err != nil {
+		if l.tmpLen == 0 || l.err != nil {
 			// Our first read could be our last.
 			return l.Read(p)
 		}
@@ -304,7 +304,7 @@ func (l *last) Read(p []byte) (int, error) {
 		l.tmpCap = lp
 	}
 	l.tmpLen, l.err = l.r.Read(l.tmp)
-	if l.tmpLen == 0 && l.err != nil {
+	if l.tmpLen == 0 {
 		return l.Read(p)
 	}
 	// Copy as much of our buffer as we can into p.
