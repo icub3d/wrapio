@@ -19,23 +19,39 @@ import (
 	"testing/iotest"
 )
 
-func Example_hashes() {
+func ExampleNewFuncReader() {
+	// This is the string we'll read from.
+	r := strings.NewReader("This is the sample data that we are going to test with.")
+	// Create our wrappers and use them.
+	fr := NewFuncReader(func(p []byte) {
+		// Replace all spaces with a period. I'm assuming ascii here for
+		// the simplicity of the example.
+		for x, b := range p {
+			if b == 0x20 {
+				p[x] = 0x2E
+			}
+		}
+	}, r)
+	b := &bytes.Buffer{}
+	io.Copy(b, fr)
+	fmt.Println(b.String())
+	// Output:
+	// This.is.the.sample.data.that.we.are.going.to.test.with.
+}
+
+func ExampleNewHashReader() {
 	// We'll read from this using io.Copy.
 	r := strings.NewReader("This is the sample data that we are going to test with.")
-
 	// Generate different hashes on each side.
 	m := md5.New()
 	s := sha256.New()
-
 	// Create our wrappers and use them.
 	hr := NewHashReader(m, r)
 	hw := NewHashWriter(s, ioutil.Discard)
 	io.Copy(hw, hr)
-
 	// Use the Sum()s which in this case we'll just print it out.
 	fmt.Println(hex.EncodeToString(m.Sum(nil)))
 	fmt.Println(hex.EncodeToString(s.Sum(nil)))
-
 	// Output:
 	// 9bd2f8a51a7745e0e0af586736f93944
 	// 52b846d6fedeb0a90acec7ce09f7d590ec4db0e5bd1884bc74c1d81e3c00b471
@@ -113,14 +129,12 @@ func TestHashWriter(t *testing.T) {
 	}
 }
 
-func Example_stats() {
+func ExampleNewStatsReader() {
 	// We'll read from this using io.Copy.
 	sr := strings.NewReader("This is the sample data that we are going to test with.")
-
 	// Create our wrappers and use them.
 	s, r := NewStatsReader(iotest.OneByteReader(sr))
 	io.Copy(ioutil.Discard, r)
-
 	// Print out the statistics.
 	s.Lock()
 	defer s.Unlock()
@@ -180,7 +194,7 @@ func TestStatsWriter(t *testing.T) {
 	}
 }
 
-func Example_blocks() {
+func ExampleNewBlockReader() {
 	// This is the buffer that we'll read from.
 	buf := strings.NewReader("0123456789")
 	br := NewBlockReader(3, buf)
@@ -271,7 +285,6 @@ func TestBlockWriter(t *testing.T) {
 				k, s, test.last)
 		}
 	}
-
 	// Test a nil writer.
 	if NewBlockWriter(1, nil) != nil {
 		t.Errorf("nil io.Writer didn't return nil.")
@@ -279,7 +292,6 @@ func TestBlockWriter(t *testing.T) {
 	if NewBlockWriter(0, &bytes.Buffer{}) != nil {
 		t.Errorf("zero size didn't return nil.")
 	}
-
 	// Test with the error writer.
 	e := ew{err: fmt.Errorf("i did it")}
 	w := NewBlockWriter(1, e)
@@ -294,7 +306,6 @@ func TestBlockWriter(t *testing.T) {
 	if err == nil {
 		t.Errorf("bad error close results: %v", err)
 	}
-
 }
 
 func TestBlockReaderFunctional(t *testing.T) {
@@ -317,7 +328,6 @@ func TestBlockReaderFunctional(t *testing.T) {
 		t.Errorf("expected calls %v != results %v",
 			2, s.Calls)
 	}
-
 }
 
 // This does some unit testing. It puts the block in an artificial
@@ -451,7 +461,7 @@ func TestBlockReaderUnitTest(t *testing.T) {
 	}
 }
 
-func Example_lastFunc() {
+func ExampleNewLastFuncReader() {
 	// This is the buffer that we'll read from.
 	buf := strings.NewReader("0123456789")
 	br := NewLastFuncReader(func(p []byte) []byte {
@@ -662,7 +672,6 @@ func TestLastFuncWriter(t *testing.T) {
 			t.Errorf("Test %v: final write didn't return 0, EOF: %v %v",
 				k, n, err)
 		}
-
 	}
 	// Test the special error cases.
 	if NewLastFuncWriter(tests[0].f, nil) != nil {
